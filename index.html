@@ -806,8 +806,8 @@ let aiComboCount = 0; // track consecutive attacks
 // Level-based parameters
 function getAIParams() {
   if (aiLevel === 1) return { reactionMin: 18, reactionMax: 30, dodgeChance: 0.2, attackAccuracy: 0.5, moveSpeed: 0.7, slamChance: 0.1, flankChance: 0.05, comboMax: 1, idleChance: 0.3 };
-  if (aiLevel === 2) return { reactionMin: 10, reactionMax: 20, dodgeChance: 0.5, attackAccuracy: 0.75, moveSpeed: 0.9, slamChance: 0.3, flankChance: 0.15, comboMax: 2, idleChance: 0.15 };
-  return { reactionMin: 5, reactionMax: 12, dodgeChance: 0.85, attackAccuracy: 0.95, moveSpeed: 1.0, slamChance: 0.5, flankChance: 0.3, comboMax: 4, idleChance: 0.05 };
+  if (aiLevel === 2) return { reactionMin: 7, reactionMax: 15, dodgeChance: 0.65, attackAccuracy: 0.85, moveSpeed: 0.95, slamChance: 0.4, flankChance: 0.25, comboMax: 3, idleChance: 0.1 };
+  return { reactionMin: 3, reactionMax: 8, dodgeChance: 0.95, attackAccuracy: 0.98, moveSpeed: 1.1, slamChance: 0.6, flankChance: 0.4, comboMax: 5, idleChance: 0.02 };
 }
 
 function updateAI() {
