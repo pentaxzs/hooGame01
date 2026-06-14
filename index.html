@@ -436,7 +436,8 @@ class Player {
     shakeTimer = 15; shakeIntensity = 10;
     for (let i = -1; i <= 1; i += 0.2) particles.push({ x: this.x+i*35, y: this.y+20, vx: i*5, vy: -2-Math.random()*3, life: 20, color: '#ffcc00', size: 3+Math.random()*2 });
     const dx = other.x - this.x, dy = other.y - this.y;
-    if (Math.abs(dx) < 80 && Math.abs(dy) < 50) this.dealDamage(other, dx>=0?1:-1, 2);
+    const slamMult = this.weapon.damage <= 10 ? 1.8 : 2;
+    if (Math.abs(dx) < 80 && Math.abs(dy) < 50) this.dealDamage(other, dx>=0?1:-1, slamMult);
   }
 
   update(other) {
@@ -807,7 +808,7 @@ let aiComboCount = 0; // track consecutive attacks
 function getAIParams() {
   if (aiLevel === 1) return { reactionMin: 18, reactionMax: 30, dodgeChance: 0.2, attackAccuracy: 0.5, moveSpeed: 0.7, slamChance: 0.1, flankChance: 0.05, comboMax: 1, idleChance: 0.3 };
   if (aiLevel === 2) return { reactionMin: 7, reactionMax: 15, dodgeChance: 0.65, attackAccuracy: 0.85, moveSpeed: 0.95, slamChance: 0.4, flankChance: 0.25, comboMax: 3, idleChance: 0.1 };
-  return { reactionMin: 3, reactionMax: 8, dodgeChance: 0.95, attackAccuracy: 0.98, moveSpeed: 1.1, slamChance: 0.6, flankChance: 0.4, comboMax: 5, idleChance: 0.02 };
+  return { reactionMin: 2, reactionMax: 5, dodgeChance: 0.97, attackAccuracy: 0.99, moveSpeed: 1.15, slamChance: 0.7, flankChance: 0.45, comboMax: 6, idleChance: 0 };
 }
 
 function updateAI() {
@@ -827,9 +828,9 @@ function updateAI() {
   aiAction.wantAttack = false;
   aiAction.wantDrop = false;
 
-  // Random idle pause — makes AI feel more human
+  // Random idle pause — makes AI feel more human (brief hesitation only)
   if (Math.random() < params.idleChance && aiState === 'engage') {
-    aiIdleTimer = 10 + Math.floor(Math.random() * 15);
+    aiIdleTimer = 5 + Math.floor(Math.random() * 8);
     return;
   }
   if (aiIdleTimer > 0) { aiIdleTimer--; return; }
@@ -994,6 +995,11 @@ function updateAI() {
   // Aerial slam opportunity (any state)
   if (!ai.onGround && ai.vy > 0 && target.y >= ai.y && dist < 90 && Math.random() < params.slamChance) {
     aiAction.wantAttack = true;
+  }
+
+  // Fallback: if no movement decided, always move toward target
+  if (aiAction.moveDir === 0 && dist > 40) {
+    aiAction.moveDir = dx > 0 ? 1 : -1;
   }
 
   // Edge avoidance
