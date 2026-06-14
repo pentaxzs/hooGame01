@@ -40,21 +40,43 @@ canvas { border: 2px solid #444; border-radius: 8px; image-rendering: pixelated;
 #start-btn:hover { background: #ffcc00; color: #111; }
 #start-btn:disabled { opacity: 0.3; cursor: default; }
 .controls-info { font-size: 12px; color: #666; margin-top: 6px; margin-bottom: 4px; }
+.mode-btn {
+  padding: 10px 30px; font-size: 18px; border: 2px solid #555; border-radius: 10px;
+  background: #222; color: #fff; cursor: pointer; transition: all 0.2s;
+}
+.mode-btn:hover { border-color: #888; background: #333; }
+.mode-btn.selected { border-color: #ffcc00; background: #3a3200; color: #ffcc00; box-shadow: 0 0 15px rgba(255,204,0,0.3); }
+.level-btn {
+  padding: 6px 16px; font-size: 14px; border: 2px solid #555; border-radius: 8px;
+  background: #222; color: #fff; cursor: pointer; transition: all 0.2s;
+}
+.level-btn:hover { border-color: #888; background: #333; }
+.level-btn.selected { border-color: #ffcc00; background: #3a3200; color: #ffcc00; box-shadow: 0 0 10px rgba(255,204,0,0.3); }
 </style>
 </head>
 <body>
 <div id="weapon-select">
   <h1>격투 게임</h1>
   <p class="subtitle">캐릭터를 선택하고 싸워라!</p>
+  <div id="mode-select" style="margin-bottom:15px;display:flex;gap:20px;">
+    <button class="mode-btn selected" id="mode-1p" onclick="selectMode('1p')">1P (vs AI)</button>
+    <button class="mode-btn" id="mode-2p" onclick="selectMode('2p')">2P (대전)</button>
+  </div>
+  <div id="ai-level-select" style="margin-bottom:20px;display:flex;gap:12px;align-items:center;">
+    <span style="color:#aaa;font-size:14px;">AI 난이도:</span>
+    <button class="level-btn" id="level-1" onclick="selectAILevel(1)">🟢 쉬움</button>
+    <button class="level-btn selected" id="level-2" onclick="selectAILevel(2)">🟡 보통</button>
+    <button class="level-btn" id="level-3" onclick="selectAILevel(3)">🔴 어려움</button>
+  </div>
   <div class="player-select">
     <div class="player-panel p1">
       <h2>Player 1</h2>
       <p class="controls-info">이동: WASD | 공격: Space</p>
       <div class="weapons" id="p1-weapons"></div>
     </div>
-    <div class="player-panel p2">
-      <h2>Player 2</h2>
-      <p class="controls-info">이동: 방향키 | 공격: 0</p>
+    <div class="player-panel p2" id="p2-panel">
+      <h2 id="p2-title">AI</h2>
+      <p class="controls-info" id="p2-controls">랜덤 캐릭터 선택</p>
       <div class="weapons" id="p2-weapons"></div>
     </div>
   </div>
@@ -260,6 +282,44 @@ function prerenderSprites() {
 prerenderSprites();
 
 let p1Weapon = null, p2Weapon = null;
+let gameMode = '1p'; // '1p' or '2p'
+let aiLevel = 2; // 1=easy, 2=normal, 3=hard
+
+function selectAILevel(level) {
+  aiLevel = level;
+  for (let i = 1; i <= 3; i++) document.getElementById('level-'+i).classList.toggle('selected', i===level);
+}
+
+function selectMode(mode) {
+  gameMode = mode;
+  document.getElementById('mode-1p').classList.toggle('selected', mode==='1p');
+  document.getElementById('mode-2p').classList.toggle('selected', mode==='2p');
+  document.getElementById('ai-level-select').style.display = mode==='1p' ? 'flex' : 'none';
+  const p2Panel = document.getElementById('p2-panel');
+  const p2Title = document.getElementById('p2-title');
+  const p2Controls = document.getElementById('p2-controls');
+  const p2WeaponsDiv = document.getElementById('p2-weapons');
+  if (mode === '1p') {
+    p2Title.textContent = 'AI';
+    p2Controls.textContent = '랜덤 캐릭터 선택';
+    p2WeaponsDiv.style.display = 'flex';
+    p2WeaponsDiv.style.pointerEvents = 'none';
+    p2WeaponsDiv.style.opacity = '0.5';
+    p2Weapon = null;
+    document.querySelectorAll('#p2-weapons .weapon-btn').forEach(b => b.classList.remove('selected-p2'));
+    document.getElementById('start-btn').disabled = !p1Weapon;
+  } else {
+    p2Title.textContent = 'Player 2';
+    p2Controls.textContent = '이동: 방향키 | 공격: 0';
+    p2WeaponsDiv.style.display = 'flex';
+    p2WeaponsDiv.style.pointerEvents = 'auto';
+    p2WeaponsDiv.style.opacity = '1';
+    p2Weapon = null;
+    document.querySelectorAll('#p2-weapons .weapon-btn').forEach(b => b.classList.remove('selected-p2'));
+    document.getElementById('start-btn').disabled = !(p1Weapon && p2Weapon);
+  }
+}
+
 function buildWeaponUI() {
   ['p1', 'p2'].forEach(pid => {
     const container = document.getElementById(`${pid}-weapons`);
@@ -271,11 +331,15 @@ function buildWeaponUI() {
         container.querySelectorAll('.weapon-btn').forEach(b => b.classList.remove(`selected-${pid}`));
         btn.classList.add(`selected-${pid}`);
         if (pid === 'p1') p1Weapon = w; else p2Weapon = w;
-        document.getElementById('start-btn').disabled = !(p1Weapon && p2Weapon);
+        if (gameMode === '1p') document.getElementById('start-btn').disabled = !p1Weapon;
+        else document.getElementById('start-btn').disabled = !(p1Weapon && p2Weapon);
       };
       container.appendChild(btn);
     });
   });
+  // 1P mode default: show but disabled
+  document.getElementById('p2-weapons').style.pointerEvents = 'none';
+  document.getElementById('p2-weapons').style.opacity = '0.5';
 }
 buildWeaponUI();
 
@@ -313,6 +377,7 @@ class Player {
     this.invincible = 0; this.hitStun = 0;
     this.walkFrame = 0; this.walkTimer = 0; this.isWalking = false;
     this.slamming = false; this.slamLanded = false; this.slamEffectTimer = 0;
+    this.dropThrough = false; this.dropTimer = 0;
   }
 
   jump() {
@@ -323,6 +388,12 @@ class Player {
       spawnParticles(this.x, this.y + 20, '#fff', 4, 2);
       if (this.jumps === 2) spawnParticles(this.x, this.y + 10, '#aaf', 6, 3);
     }
+  }
+
+  dropDown() {
+    if (!this.onGround || this.y >= GROUND - 5) return; // can't drop through ground
+    this.dropThrough = true; this.dropTimer = 10;
+    this.onGround = false; this.y += 3; this.vy = 2;
   }
 
   attack(other) {
@@ -374,13 +445,15 @@ class Player {
     if (this.cooldownTimer > 0) this.cooldownTimer--;
     if (this.attackTimer > 0) this.attackTimer--; else this.attacking = false;
     if (this.slamEffectTimer > 0) this.slamEffectTimer--;
+    if (this.dropTimer > 0) this.dropTimer--;
+    if (this.dropTimer <= 0) this.dropThrough = false;
     this.vy += GRAVITY;
     if (this.slamming) this.vy = Math.max(this.vy, 15);
     this.x += this.vx; this.y += this.vy; this.vx *= 0.85;
 
     let landed = false;
     for (const ob of obstacles) {
-      if (this.vy >= 0) {
+      if (this.vy >= 0 && !this.dropThrough) {
         const prev = this.y+20-this.vy, cur = this.y+20;
         if (cur >= ob.y && prev <= ob.y+2 && this.x > ob.x-10 && this.x < ob.x+ob.w+10) {
           this.y = ob.y-20; this.vy = 0; this.onGround = true; this.jumps = 0; landed = true;
@@ -613,10 +686,80 @@ let player1, player2;
 const keys = {};
 
 function startGame() {
-  if (!p1Weapon || !p2Weapon) return;
+  if (gameMode === '1p') {
+    if (!p1Weapon) return;
+    // Disable start button during roulette
+    const startBtn = document.getElementById('start-btn');
+    startBtn.disabled = true;
+    startBtn.textContent = 'AI 캐릭터 선택 중...';
+
+    const p2Btns = document.querySelectorAll('#p2-weapons .weapon-btn');
+    const p2WeaponsDiv = document.getElementById('p2-weapons');
+    p2WeaponsDiv.style.opacity = '1';
+
+    // Roulette: pick final result first
+    let aiWeapons = WEAPONS.filter(w => w.id !== p1Weapon.id);
+    const finalIdx = WEAPONS.indexOf(aiWeapons[Math.floor(Math.random()*aiWeapons.length)]);
+
+    // Create roulette sequence: cycle through all, slow down, land on final
+    const totalSteps = 14 + Math.floor(Math.random()*6); // 14-19 steps
+    let step = 0;
+    let currentIdx = Math.floor(Math.random()*WEAPONS.length);
+
+    function rouletteStep() {
+      // Clear previous highlight
+      p2Btns.forEach(b => { b.classList.remove('selected-p2'); b.style.transform = ''; b.style.transition = 'all 0.1s'; });
+
+      // Advance to next (on last step, land on final)
+      if (step >= totalSteps) {
+        currentIdx = finalIdx;
+      } else {
+        currentIdx = (currentIdx + 1) % WEAPONS.length;
+        // Skip self on non-final steps too
+        if (WEAPONS[currentIdx].id === p1Weapon.id) currentIdx = (currentIdx + 1) % WEAPONS.length;
+      }
+
+      // Highlight current
+      p2Btns[currentIdx].classList.add('selected-p2');
+      p2Btns[currentIdx].style.transform = 'scale(1.05)';
+
+      step++;
+
+      if (step > totalSteps) {
+        // Final selection - flash effect
+        p2Weapon = WEAPONS[finalIdx];
+        let flashCount = 0;
+        const flashInterval = setInterval(() => {
+          p2Btns[finalIdx].style.boxShadow = flashCount % 2 === 0
+            ? '0 0 25px rgba(239,83,80,0.8), 0 0 50px rgba(239,83,80,0.4)'
+            : '0 0 15px rgba(239,83,80,0.3)';
+          flashCount++;
+          if (flashCount >= 6) {
+            clearInterval(flashInterval);
+            p2Btns[finalIdx].style.boxShadow = '';
+            // Actually start game after short delay
+            setTimeout(() => launchGame(), 400);
+          }
+        }, 120);
+      } else {
+        // Speed: fast at start, slowing down toward end
+        const progress = step / totalSteps;
+        const delay = 60 + progress * progress * 300; // 60ms -> ~360ms
+        setTimeout(rouletteStep, delay);
+      }
+    }
+
+    rouletteStep();
+  } else {
+    if (!p1Weapon || !p2Weapon) return;
+    launchGame();
+  }
+}
+
+function launchGame() {
   document.getElementById('weapon-select').style.display = 'none';
   player1 = new Player(200, p1Weapon, 'Player 1', true, '#4fc3f7');
-  player2 = new Player(1000, p2Weapon, 'Player 2', false, '#ef5350');
+  player2 = new Player(1000, p2Weapon, gameMode==='1p'?'AI':'Player 2', false, '#ef5350');
   projectiles=[]; explosions=[]; particles=[]; hitEffects=[]; items=[]; itemSpawnTimer=0;
   gameOver=false; winner=null; winnerChar=null; gameRunning=true;
   initClouds(); initBirds(); gameLoop();
@@ -632,17 +775,244 @@ document.addEventListener('keydown', e => {
   if (!gameRunning) return;
   if (gameOver) { if (e.key==='Enter') restartGame(); return; }
   if (e.code==='KeyW') player1.jump();
-  if (e.key==='ArrowUp') { e.preventDefault(); player2.jump(); }
+  if (e.code==='KeyS') player1.dropDown();
   if (e.code==='Space') { e.preventDefault(); player1.attack(player2); }
-  if (e.key==='0'||e.code==='Numpad0'||e.code==='Digit0') player2.attack(player1);
+  if (gameMode === '2p') {
+    if (e.key==='ArrowUp') { e.preventDefault(); player2.jump(); }
+    if (e.key==='ArrowDown') { e.preventDefault(); player2.dropDown(); }
+    if (e.key==='0'||e.code==='Numpad0'||e.code==='Digit0') player2.attack(player1);
+  }
 });
 document.addEventListener('keyup', e => { keys[e.key.toLowerCase()]=false; keys[e.code]=false; });
 
 function restartGame() {
   document.getElementById('weapon-select').style.display = 'flex';
   gameRunning=false; p1Weapon=null; p2Weapon=null;
-  document.querySelectorAll('.weapon-btn').forEach(b => b.classList.remove('selected-p1','selected-p2'));
-  document.getElementById('start-btn').disabled = true;
+  aiDecisionTimer=0; aiAction={moveDir:0,wantJump:false,wantAttack:false,wantDrop:false}; aiState='approach'; aiStateTimer=0; aiIdleTimer=0; aiComboCount=0;
+  document.querySelectorAll('.weapon-btn').forEach(b => { b.classList.remove('selected-p1','selected-p2'); b.style.transform=''; b.style.boxShadow=''; });
+  const startBtn = document.getElementById('start-btn');
+  startBtn.disabled = true; startBtn.textContent = '게임 시작';
+  selectMode(gameMode);
+}
+
+// AI logic for 1P mode
+let aiDecisionTimer = 0;
+let aiAction = { moveDir: 0, wantJump: false, wantAttack: false, wantDrop: false };
+let aiState = 'approach'; // approach, engage, retreat, flank, platform, itemHunt
+let aiStateTimer = 0;
+let aiIdleTimer = 0; // pause between actions for human-like feel
+let aiComboCount = 0; // track consecutive attacks
+
+// Level-based parameters
+function getAIParams() {
+  if (aiLevel === 1) return { reactionMin: 18, reactionMax: 30, dodgeChance: 0.2, attackAccuracy: 0.5, moveSpeed: 0.7, slamChance: 0.1, flankChance: 0.05, comboMax: 1, idleChance: 0.3 };
+  if (aiLevel === 2) return { reactionMin: 10, reactionMax: 20, dodgeChance: 0.5, attackAccuracy: 0.75, moveSpeed: 0.9, slamChance: 0.3, flankChance: 0.15, comboMax: 2, idleChance: 0.15 };
+  return { reactionMin: 5, reactionMax: 12, dodgeChance: 0.85, attackAccuracy: 0.95, moveSpeed: 1.0, slamChance: 0.5, flankChance: 0.3, comboMax: 4, idleChance: 0.05 };
+}
+
+function updateAI() {
+  const params = getAIParams();
+  aiDecisionTimer--;
+  if (aiDecisionTimer > 0) return;
+  aiDecisionTimer = params.reactionMin + Math.floor(Math.random() * (params.reactionMax - params.reactionMin));
+
+  const ai = player2, target = player1;
+  const dx = target.x - ai.x;
+  const dy = target.y - ai.y;
+  const dist = Math.abs(dx);
+  const w = ai.weapon;
+
+  aiAction.moveDir = 0;
+  aiAction.wantJump = false;
+  aiAction.wantAttack = false;
+  aiAction.wantDrop = false;
+
+  // Random idle pause — makes AI feel more human
+  if (Math.random() < params.idleChance && aiState === 'engage') {
+    aiIdleTimer = 10 + Math.floor(Math.random() * 15);
+    return;
+  }
+  if (aiIdleTimer > 0) { aiIdleTimer--; return; }
+
+  // State transition logic
+  aiStateTimer--;
+  if (aiStateTimer <= 0) {
+    // Decide new state based on situation
+    if (ai.hp < 30 && items.length > 0) {
+      aiState = 'itemHunt'; aiStateTimer = 60;
+    } else if (ai.hp < 40 && dist < 100 && w.type === 'ranged') {
+      aiState = 'retreat'; aiStateTimer = 30 + Math.floor(Math.random()*20);
+    } else if (dist > 300 && Math.random() < params.flankChance) {
+      aiState = 'flank'; aiStateTimer = 40 + Math.floor(Math.random()*30);
+    } else if (target.y < GROUND - 50 && Math.random() < 0.4) {
+      aiState = 'platform'; aiStateTimer = 50;
+    } else if (dist < (w.type === 'melee' ? w.range * 1.2 : w.range * 0.7)) {
+      aiState = 'engage'; aiStateTimer = 20 + Math.floor(Math.random()*20);
+    } else {
+      aiState = 'approach'; aiStateTimer = 15 + Math.floor(Math.random()*15);
+    }
+  }
+
+  // Dodge incoming projectiles (priority override)
+  for (const p of projectiles) {
+    if (p.owner === ai) continue;
+    const pdx = p.x - ai.x, pdy = p.y - (ai.y - 15);
+    const timeToHit = Math.abs(pdx) / (Math.abs(p.vx) || 1);
+    if (Math.abs(pdx) < 150 && Math.abs(pdy) < 60 && timeToHit < 20) {
+      if (Math.random() < params.dodgeChance) {
+        aiAction.wantJump = true;
+        // Dodge sideways, prefer away from projectile direction
+        aiAction.moveDir = p.vx > 0 ? -1 : 1;
+        // Sometimes dodge toward player to counter-attack (hard mode)
+        if (aiLevel >= 3 && dist < 120 && Math.random() < 0.3) {
+          aiAction.moveDir = dx > 0 ? 1 : -1;
+          aiAction.wantAttack = ai.cooldownTimer <= 0;
+        }
+        return;
+      }
+    }
+  }
+
+  // State behaviors
+  if (aiState === 'itemHunt') {
+    let closest = null, closestDist = Infinity;
+    items.forEach(it => { const d = Math.abs(it.x - ai.x); if (d < closestDist) { closestDist = d; closest = it; } });
+    if (closest && closestDist < 400) {
+      aiAction.moveDir = closest.x > ai.x ? 1 : -1;
+      if (closest.y < ai.y - 40) aiAction.wantJump = true;
+      // Still attack if target is nearby
+      if (dist < w.range * 0.6 && ai.cooldownTimer <= 0 && Math.random() < 0.5) aiAction.wantAttack = true;
+    } else {
+      aiState = 'approach'; aiStateTimer = 20;
+    }
+  } else if (aiState === 'retreat') {
+    // Back away while occasionally shooting
+    aiAction.moveDir = dx > 0 ? -1 : 1;
+    if (Math.random() < 0.15) aiAction.wantJump = true;
+    // Ranged: shoot while retreating
+    if (w.type === 'ranged' && dist < w.range && ai.cooldownTimer <= 0 && Math.random() < params.attackAccuracy * 0.6) {
+      aiAction.wantAttack = true;
+    }
+    // Drop down from platform to chase or escape
+    if (ai.onGround && ai.y < GROUND - 10 && dy > 40 && Math.random() < 0.3) aiAction.wantDrop = true;
+    // Don't retreat into walls
+    if (ai.x < 80 || ai.x > canvas.width - 80) { aiState = 'flank'; aiStateTimer = 30; }
+  } else if (aiState === 'flank') {
+    // Move to a platform or circle around
+    const targetPlatformX = ai.x < canvas.width / 2 ? 950 : 80;
+    aiAction.moveDir = targetPlatformX > ai.x ? 1 : -1;
+    // Jump onto platforms
+    for (const ob of obstacles) {
+      if (Math.abs(ai.x - (ob.x + ob.w/2)) < 60 && ai.y > ob.y) {
+        aiAction.wantJump = true; break;
+      }
+    }
+    // Attack if target wanders close
+    if (dist < w.range * 0.8 && ai.cooldownTimer <= 0 && Math.random() < params.attackAccuracy) {
+      aiAction.wantAttack = true;
+    }
+  } else if (aiState === 'platform') {
+    // Try to get height advantage
+    let bestPlatform = null, bestDist = Infinity;
+    for (const ob of obstacles) {
+      const pd = Math.abs(ai.x - (ob.x + ob.w/2));
+      if (pd < bestDist && ob.y < ai.y) { bestDist = pd; bestPlatform = ob; }
+    }
+    if (bestPlatform && bestDist > 30) {
+      aiAction.moveDir = (bestPlatform.x + bestPlatform.w/2) > ai.x ? 1 : -1;
+      if (bestDist < 80) aiAction.wantJump = true;
+    }
+    // Aerial slam from platform!
+    if (!ai.onGround && ai.y < target.y && dist < 100 && Math.random() < params.slamChance) {
+      aiAction.wantAttack = true;
+    }
+  } else if (aiState === 'engage') {
+    // Active combat
+    if (w.type === 'melee') {
+      // Melee: rush in, attack, maybe back off
+      if (dist > w.range * 0.7) {
+        aiAction.moveDir = dx > 0 ? 1 : -1;
+        // Jump-approach for surprise
+        if (dist > w.range && dist < w.range * 2 && Math.random() < 0.15) aiAction.wantJump = true;
+      } else if (dist < 30) {
+        // Too close, slight back-off then attack
+        if (Math.random() < 0.3) aiAction.moveDir = dx > 0 ? -1 : 1;
+      }
+      // Attack in range
+      if (dist < w.range && ai.cooldownTimer <= 0) {
+        if (Math.random() < params.attackAccuracy) {
+          aiAction.wantAttack = true;
+          aiComboCount++;
+          // After combo, brief retreat
+          if (aiComboCount >= params.comboMax) {
+            aiComboCount = 0;
+            aiState = 'retreat'; aiStateTimer = 15 + Math.floor(Math.random()*10);
+          }
+        }
+      }
+      // Strafe during combat
+      if (ai.cooldownTimer > 5 && Math.random() < 0.3) {
+        aiAction.moveDir = Math.random() > 0.5 ? 1 : -1;
+      }
+    } else {
+      // Ranged: maintain distance, shoot
+      const idealDist = w.range * 0.4;
+      if (dist < idealDist - 50) {
+        aiAction.moveDir = dx > 0 ? -1 : 1; // back off
+      } else if (dist > idealDist + 80) {
+        aiAction.moveDir = dx > 0 ? 1 : -1; // close in
+      } else {
+        // Strafe at ideal range
+        if (Math.random() < 0.4) aiAction.moveDir = Math.random() > 0.5 ? 1 : -1;
+      }
+      // Shoot
+      if (dist < w.range && ai.cooldownTimer <= 0 && Math.random() < params.attackAccuracy) {
+        aiAction.wantAttack = true;
+        aiComboCount++;
+        if (aiComboCount >= params.comboMax) {
+          aiComboCount = 0;
+          if (Math.random() < 0.4) { aiState = 'flank'; aiStateTimer = 25; }
+        }
+      }
+      // Jump-shoot
+      if (ai.onGround && Math.random() < 0.08) aiAction.wantJump = true;
+    }
+  } else {
+    // approach: move toward target
+    aiAction.moveDir = dx > 0 ? 1 : -1;
+    // Jump over obstacles or to reach platforms
+    if (dy < -60 && dist < 200) aiAction.wantJump = true;
+    if (Math.random() < 0.06 && ai.onGround) aiAction.wantJump = true;
+    // Drop down if target is below
+    if (ai.onGround && ai.y < GROUND - 10 && dy > 50) aiAction.wantDrop = true;
+    // Opportunistic attack while approaching
+    if (dist < w.range * 0.8 && ai.cooldownTimer <= 0 && Math.random() < params.attackAccuracy * 0.4) {
+      aiAction.wantAttack = true;
+    }
+  }
+
+  // Aerial slam opportunity (any state)
+  if (!ai.onGround && ai.vy > 0 && target.y >= ai.y && dist < 90 && Math.random() < params.slamChance) {
+    aiAction.wantAttack = true;
+  }
+
+  // Edge avoidance
+  if (ai.x < 50) { aiAction.moveDir = 1; }
+  else if (ai.x > canvas.width - 50) { aiAction.moveDir = -1; }
+}
+
+function applyAI() {
+  if (gameMode !== '1p') return;
+  const params = getAIParams();
+  updateAI();
+  player2.isWalking = false;
+  if (player2.hitStun <= 0 && !player2.slamming) {
+    if (aiAction.moveDir < 0) { player2.x -= MOVE_SPEED * params.moveSpeed; player2.facingRight = false; player2.isWalking = true; }
+    if (aiAction.moveDir > 0) { player2.x += MOVE_SPEED * params.moveSpeed; player2.facingRight = true; player2.isWalking = true; }
+  }
+  if (aiAction.wantDrop) player2.dropDown();
+  if (aiAction.wantJump) player2.jump();
+  if (aiAction.wantAttack) player2.attack(player1);
 }
 
 function handleInput() {
@@ -651,10 +1021,14 @@ function handleInput() {
     if (keys['KeyA']) { player1.x-=MOVE_SPEED; player1.facingRight=false; player1.isWalking=true; }
     if (keys['KeyD']) { player1.x+=MOVE_SPEED; player1.facingRight=true; player1.isWalking=true; }
   }
-  player2.isWalking=false;
-  if (player2.hitStun<=0 && !player2.slamming) {
-    if (keys['arrowleft']) { player2.x-=MOVE_SPEED; player2.facingRight=false; player2.isWalking=true; }
-    if (keys['arrowright']) { player2.x+=MOVE_SPEED; player2.facingRight=true; player2.isWalking=true; }
+  if (gameMode === '2p') {
+    player2.isWalking=false;
+    if (player2.hitStun<=0 && !player2.slamming) {
+      if (keys['arrowleft']) { player2.x-=MOVE_SPEED; player2.facingRight=false; player2.isWalking=true; }
+      if (keys['arrowright']) { player2.x+=MOVE_SPEED; player2.facingRight=true; player2.isWalking=true; }
+    }
+  } else {
+    applyAI();
   }
 }
 
@@ -828,7 +1202,11 @@ function drawGameOver() {
 }
 function drawControls() {
   ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.font='12px Segoe UI'; ctx.textAlign='center';
-  ctx.fillText('P1: WASD 이동 / Space 공격  |  P2: 방향키 이동 / 0 공격  |  공중 공격 = 내려찍기 (2x)  |  W/↑ 두번 = 하이점프',canvas.width/2,canvas.height-10);
+  if (gameMode === '1p') {
+    ctx.fillText('WASD 이동 / Space 공격  |  S = 플랫폼 내려가기  |  공중 공격 = 내려찍기 (2x)  |  W 두번 = 하이점프',canvas.width/2,canvas.height-10);
+  } else {
+    ctx.fillText('P1: WASD / Space  |  P2: 방향키 / 0  |  S/↓ = 플랫폼 내려가기  |  공중 공격 = 내려찍기 (2x)  |  W/↑ 두번 = 하이점프',canvas.width/2,canvas.height-10);
+  }
 }
 
 function gameLoop() {
