@@ -485,7 +485,7 @@ class Player {
     const w = this.weapon;
     // Attack animation progress: 1.0 = just started, 0.0 = done
     const atkMax = w.type === 'melee' ? 20 : 15;
-    const atk = this.attacking ? this.attackTimer / atkMax : 0;
+    const atk = this.attacking ? Math.min(this.attackTimer / atkMax, 1.0) : 0;
     // Swing angle for melee: starts high, swings down
     const swingAngle = this.attacking ? dir * (-1.2 + (1-atk) * 2.4) : 0;
 
