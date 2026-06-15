@@ -378,6 +378,7 @@ class Player {
     this.walkFrame = 0; this.walkTimer = 0; this.isWalking = false;
     this.slamming = false; this.slamLanded = false; this.slamEffectTimer = 0;
     this.dropThrough = false; this.dropTimer = 0;
+    this.charging = false; this.chargeTime = 0; this.maxCharge = 180; // 3 sec at 60fps
   }
 
   jump() {
@@ -397,25 +398,47 @@ class Player {
   }
 
   attack(other) {
-    if (this.cooldownTimer > 0 || this.hitStun > 0 || this.slamming) return;
+    // Instant attack (for AI or non-charge)
+    this.startCharge();
+    if (this.charging) this.releaseCharge(other);
+  }
+
+  startCharge() {
+    if (this.cooldownTimer > 0 || this.hitStun > 0 || this.slamming || this.charging) return;
     if (!this.onGround) {
       this.slamming = true; this.slamLanded = false; this.vy = 15; this.vx = 0;
       this.cooldownTimer = this.weapon.cooldown / 16.67; return;
     }
+    this.charging = true; this.chargeTime = 0;
+  }
+
+  releaseCharge(other) {
+    if (!this.charging) return;
+    const chargePct = Math.min(this.chargeTime / this.maxCharge, 1); // 0~1
+    const dmgMult = 1 + chargePct; // 1x ~ 2x
+    const kbMult = 1 + chargePct * 0.5; // knockback 1x ~ 1.5x
+    this.charging = false; this.chargeTime = 0;
     this.attacking = true;
     this.attackTimer = this.weapon.type === 'melee' ? 20 : 15;
     this.cooldownTimer = this.weapon.cooldown / 16.67;
     if (this.weapon.type === 'melee') {
       const dir = this.facingRight ? 1 : -1;
-      const ax = this.x + dir * this.weapon.range / 2;
+      const rangeBonus = 1 + chargePct * 0.3; // range +30% at full
+      const ax = this.x + dir * this.weapon.range * rangeBonus / 2;
       const dx = other.x - ax, dy = other.y - this.y;
-      if (Math.abs(dx) < this.weapon.range/2+15 && Math.abs(dy) < 50) this.dealDamage(other, dir, 1);
+      if (Math.abs(dx) < this.weapon.range*rangeBonus/2+15 && Math.abs(dy) < 50) this.dealDamage(other, dir, dmgMult);
+      // Full charge: shockwave particles
+      if (chargePct > 0.5) {
+        const count = Math.floor(chargePct * 10);
+        spawnParticles(this.x + dir*30, this.y-10, '#ffcc00', count, 4);
+      }
     } else {
       const dir = this.facingRight ? 1 : -1;
       const count = this.weapon.multi || 1;
+      const speedMult = 1 + chargePct * 0.4;
       for (let i = 0; i < count; i++) {
         const angle = count > 1 ? (i-(count-1)/2)*this.weapon.spread : 0;
-        projectiles.push({ x: this.x+dir*25, y: this.y-20, vx: dir*this.weapon.speed*Math.cos(angle), vy: this.weapon.speed*Math.sin(angle), damage: this.weapon.damage, knockback: this.weapon.knockback, owner: this, size: this.weapon.projectileSize, color: this.weapon.projectileColor, life: 60, explosive: this.weapon.explosive||false, explosionRadius: this.weapon.explosionRadius||0, weapon: this.weapon });
+        projectiles.push({ x: this.x+dir*25, y: this.y-20, vx: dir*this.weapon.speed*speedMult*Math.cos(angle), vy: this.weapon.speed*speedMult*Math.sin(angle), damage: Math.round(this.weapon.damage*dmgMult), knockback: Math.round(this.weapon.knockback*kbMult), owner: this, size: this.weapon.projectileSize*(1+chargePct*0.5), color: this.weapon.projectileColor, life: 60+Math.floor(chargePct*30), explosive: this.weapon.explosive||false, explosionRadius: this.weapon.explosionRadius? this.weapon.explosionRadius*(1+chargePct*0.3):0, weapon: this.weapon, charged: chargePct });
       }
     }
   }
@@ -425,6 +448,7 @@ class Player {
     const dmg = Math.round(this.weapon.damage * mult);
     other.hp -= dmg; other.vx = dir*this.weapon.knockback*mult; other.vy = -5*mult; other.onGround = false;
     other.invincible = 15; other.hitStun = 10;
+    other.charging = false; other.chargeTime = 0; // cancel charge on hit
     shakeTimer = 8*mult; shakeIntensity = dmg/3;
     spawnParticles(other.x, other.y-15, '#ff4444', 8, 5);
     hitEffects.push({ x: other.x, y: other.y-20, timer: 12, damage: dmg });
@@ -445,6 +469,7 @@ class Player {
     if (this.invincible > 0) this.invincible--;
     if (this.cooldownTimer > 0) this.cooldownTimer--;
     if (this.attackTimer > 0) this.attackTimer--; else this.attacking = false;
+    if (this.charging) { this.chargeTime = Math.min(this.chargeTime + 1, this.maxCharge); }
     if (this.slamEffectTimer > 0) this.slamEffectTimer--;
     if (this.dropTimer > 0) this.dropTimer--;
     if (this.dropTimer <= 0) this.dropThrough = false;
@@ -537,11 +562,56 @@ class Player {
       ctx.strokeStyle = `rgba(255,204,0,${alpha})`; ctx.lineWidth = 3; ctx.stroke();
     }
 
+    // Charge effect
+    if (this.charging && this.chargeTime > 5) {
+      const chPct = Math.min(this.chargeTime / this.maxCharge, 1);
+      const dir = this.facingRight ? 1 : -1;
+      const handX = this.x + dir * (sp.w/2 - 3*P);
+      const handY = this.y - sp.h + 22 + 8*P;
+
+      // Weapon glow: pulsing aura that grows with charge
+      const pulse = 1 + Math.sin(Date.now() / 80) * 0.3;
+      const glowR = (8 + chPct * 25) * pulse;
+      const glowColor = chPct < 0.33 ? '255,255,100' : chPct < 0.66 ? '255,180,50' : '255,80,30';
+      ctx.beginPath(); ctx.arc(handX + dir*10, handY, glowR, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(${glowColor},${0.15 + chPct*0.2})`; ctx.fill();
+      ctx.beginPath(); ctx.arc(handX + dir*10, handY, glowR*0.5, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(255,255,255,${0.1 + chPct*0.3})`; ctx.fill();
+
+      // Charge sparks
+      if (chPct > 0.2 && Math.random() < chPct) {
+        const sa = Math.random()*Math.PI*2, sr = glowR*(0.5+Math.random()*0.5);
+        particles.push({ x:handX+dir*10+Math.cos(sa)*sr, y:handY+Math.sin(sa)*sr, vx:(Math.random()-0.5)*2, vy:-1-Math.random()*2, life:8+Math.random()*8, color: chPct>0.66?'#ff4444':'#ffcc00', size:1.5+Math.random()*2 });
+      }
+
+      // Charge bar above character
+      const barW = 36, barH = 4;
+      const barX = this.x - barW/2, barY = sy - 14;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(barX-1, barY-1, barW+2, barH+2);
+      const grad = ctx.createLinearGradient(barX, barY, barX+barW*chPct, barY);
+      grad.addColorStop(0, '#ffcc00'); grad.addColorStop(1, chPct>0.66?'#ff4400':'#ffaa00');
+      ctx.fillStyle = grad; ctx.fillRect(barX, barY, barW*chPct, barH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 0.5; ctx.strokeRect(barX, barY, barW, barH);
+
+      // "MAX" flash at full charge
+      if (chPct >= 1) {
+        ctx.fillStyle = `rgba(255,255,255,${0.5+Math.sin(Date.now()/100)*0.5})`;
+        ctx.font = 'bold 10px Segoe UI'; ctx.textAlign = 'center';
+        ctx.fillText('MAX', this.x, barY - 3);
+      }
+
+      // Character shake when charging heavily
+      if (chPct > 0.5) {
+        const shk = chPct * 1.5;
+        ctx.drawImage(this.facingRight ? sp.right : sp.left, sx + (Math.random()-0.5)*shk, sy + bob + (Math.random()-0.5)*shk);
+      }
+    }
+
     // Name tag
     ctx.fillStyle = this.tint;
     ctx.font = 'bold 11px Segoe UI';
     ctx.textAlign = 'center';
-    ctx.fillText(this.weapon.character, this.x, sy - 5);
+    ctx.fillText(this.weapon.character, this.x, sy - (this.charging && this.chargeTime > 5 ? 22 : 5));
 
     ctx.restore();
   }
@@ -777,14 +847,21 @@ document.addEventListener('keydown', e => {
   if (gameOver) { if (e.key==='Enter') restartGame(); return; }
   if (e.code==='KeyW') player1.jump();
   if (e.code==='KeyS') player1.dropDown();
-  if (e.code==='Space') { e.preventDefault(); player1.attack(player2); }
+  if (e.code==='Space') { e.preventDefault(); player1.startCharge(); }
   if (gameMode === '2p') {
     if (e.key==='ArrowUp') { e.preventDefault(); player2.jump(); }
     if (e.key==='ArrowDown') { e.preventDefault(); player2.dropDown(); }
-    if (e.key==='0'||e.code==='Numpad0'||e.code==='Digit0') player2.attack(player1);
+    if (e.key==='0'||e.code==='Numpad0'||e.code==='Digit0') player2.startCharge();
   }
 });
-document.addEventListener('keyup', e => { keys[e.key.toLowerCase()]=false; keys[e.code]=false; });
+document.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()]=false; keys[e.code]=false;
+  if (!gameRunning || gameOver) return;
+  if (e.code==='Space') player1.releaseCharge(player2);
+  if (gameMode === '2p') {
+    if (e.key==='0'||e.code==='Numpad0'||e.code==='Digit0') player2.releaseCharge(player1);
+  }
+});
 
 function restartGame() {
   document.getElementById('weapon-select').style.display = 'flex';
@@ -1007,18 +1084,41 @@ function updateAI() {
   else if (ai.x > canvas.width - 50) { aiAction.moveDir = -1; }
 }
 
+let aiChargeTarget = 0; // how long AI wants to charge (in frames)
+
 function applyAI() {
   if (gameMode !== '1p') return;
   const params = getAIParams();
   updateAI();
   player2.isWalking = false;
   if (player2.hitStun <= 0 && !player2.slamming) {
-    if (aiAction.moveDir < 0) { player2.x -= MOVE_SPEED * params.moveSpeed; player2.facingRight = false; player2.isWalking = true; }
-    if (aiAction.moveDir > 0) { player2.x += MOVE_SPEED * params.moveSpeed; player2.facingRight = true; player2.isWalking = true; }
+    // Slow down while charging but still allow movement
+    const spd = player2.charging ? params.moveSpeed * 0.5 : params.moveSpeed;
+    if (aiAction.moveDir < 0) { player2.x -= MOVE_SPEED * spd; player2.facingRight = false; player2.isWalking = true; }
+    if (aiAction.moveDir > 0) { player2.x += MOVE_SPEED * spd; player2.facingRight = true; player2.isWalking = true; }
   }
   if (aiAction.wantDrop) player2.dropDown();
   if (aiAction.wantJump) player2.jump();
-  if (aiAction.wantAttack) player2.attack(player1);
+
+  // AI charge logic
+  if (aiAction.wantAttack && !player2.charging && !player2.slamming) {
+    // Decide whether to charge or quick-attack
+    const dist = Math.abs(player1.x - player2.x);
+    if (dist > 150 && Math.random() < 0.3 * aiLevel) {
+      // Start charging: longer charge for harder AI
+      aiChargeTarget = Math.floor((30 + Math.random() * 60) * aiLevel);
+      player2.startCharge();
+    } else {
+      // Quick attack (no charge)
+      player2.attack(player1);
+    }
+  }
+  // Release charge when target reached or forced
+  if (player2.charging) {
+    if (player2.chargeTime >= aiChargeTarget || player2.hitStun > 0) {
+      player2.releaseCharge(player1);
+    }
+  }
 }
 
 function handleInput() {
@@ -1209,9 +1309,9 @@ function drawGameOver() {
 function drawControls() {
   ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.font='12px Segoe UI'; ctx.textAlign='center';
   if (gameMode === '1p') {
-    ctx.fillText('WASD 이동 / Space 공격  |  S = 플랫폼 내려가기  |  공중 공격 = 내려찍기 (2x)  |  W 두번 = 하이점프',canvas.width/2,canvas.height-10);
+    ctx.fillText('WASD 이동 / Space 공격(꾹 누르면 차지)  |  S = 내려가기  |  공중 공격 = 내려찍기  |  W 두번 = 하이점프',canvas.width/2,canvas.height-10);
   } else {
-    ctx.fillText('P1: WASD / Space  |  P2: 방향키 / 0  |  S/↓ = 플랫폼 내려가기  |  공중 공격 = 내려찍기 (2x)  |  W/↑ 두번 = 하이점프',canvas.width/2,canvas.height-10);
+    ctx.fillText('P1: WASD/Space  |  P2: 방향키/0  |  꾹 누르면 차지공격  |  S/↓ 내려가기  |  공중 = 내려찍기  |  W/↑ 두번 = 하이점프',canvas.width/2,canvas.height-10);
   }
 }
 
