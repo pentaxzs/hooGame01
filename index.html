@@ -915,19 +915,23 @@ function updateAI() {
   // State transition logic
   aiStateTimer--;
   if (aiStateTimer <= 0) {
-    // Decide new state based on situation
-    if (ai.hp < 30 && items.length > 0) {
-      aiState = 'itemHunt'; aiStateTimer = 60;
-    } else if (ai.hp < 40 && dist < 100 && w.type === 'ranged') {
-      aiState = 'retreat'; aiStateTimer = 30 + Math.floor(Math.random()*20);
-    } else if (dist > 300 && Math.random() < params.flankChance) {
-      aiState = 'flank'; aiStateTimer = 40 + Math.floor(Math.random()*30);
-    } else if (target.y < GROUND - 50 && Math.random() < 0.4) {
-      aiState = 'platform'; aiStateTimer = 50;
-    } else if (dist < (w.type === 'melee' ? w.range * 1.2 : w.range * 0.7)) {
-      aiState = 'engage'; aiStateTimer = 20 + Math.floor(Math.random()*20);
+    // Hard AI: grab items at higher HP threshold
+    const itemHuntHp = aiLevel >= 3 ? 70 : aiLevel >= 2 ? 50 : 30;
+    const hasNearbyItem = items.some(it => Math.abs(it.x - ai.x) < (aiLevel >= 3 ? 500 : 300));
+    if (ai.hp < itemHuntHp && items.length > 0 && hasNearbyItem) {
+      aiState = 'itemHunt'; aiStateTimer = 40;
+    } else if (dist < (w.type === 'melee' ? w.range * 1.5 : w.range)) {
+      // In attack range → engage
+      aiState = 'engage'; aiStateTimer = 15 + Math.floor(Math.random()*15);
     } else {
-      aiState = 'approach'; aiStateTimer = 15 + Math.floor(Math.random()*15);
+      // Out of range → always chase (primary behavior)
+      aiState = 'approach'; aiStateTimer = 10;
+      // Occasionally mix in retreat/flank for variety (but short timers)
+      if (ai.hp < 40 && dist < 100 && w.type === 'ranged' && Math.random() < 0.3) {
+        aiState = 'retreat'; aiStateTimer = 15;
+      } else if (Math.random() < params.flankChance * 0.5) {
+        aiState = 'flank'; aiStateTimer = 20;
+      }
     }
   }
 
@@ -955,9 +959,11 @@ function updateAI() {
   if (aiState === 'itemHunt') {
     let closest = null, closestDist = Infinity;
     items.forEach(it => { const d = Math.abs(it.x - ai.x); if (d < closestDist) { closestDist = d; closest = it; } });
-    if (closest && closestDist < 400) {
+    const searchRange = aiLevel >= 3 ? 800 : 500;
+    if (closest && closestDist < searchRange) {
       aiAction.moveDir = closest.x > ai.x ? 1 : -1;
       if (closest.y < ai.y - 40) aiAction.wantJump = true;
+      if (ai.onGround && ai.y < GROUND - 10 && closest.y > ai.y + 20) aiAction.wantDrop = true;
       // Still attack if target is nearby
       if (dist < w.range * 0.6 && ai.cooldownTimer <= 0 && Math.random() < 0.5) aiAction.wantAttack = true;
     } else {
@@ -978,7 +984,14 @@ function updateAI() {
   } else if (aiState === 'flank') {
     // Move to a platform or circle around
     const targetPlatformX = ai.x < canvas.width / 2 ? 950 : 80;
-    aiAction.moveDir = targetPlatformX > ai.x ? 1 : -1;
+    const flankDist = Math.abs(targetPlatformX - ai.x);
+    if (flankDist > 40) {
+      aiAction.moveDir = targetPlatformX > ai.x ? 1 : -1;
+    } else {
+      // Reached flank position, switch to engage
+      aiState = 'engage'; aiStateTimer = 25;
+      aiAction.moveDir = dx > 0 ? 1 : -1;
+    }
     // Jump onto platforms
     for (const ob of obstacles) {
       if (Math.abs(ai.x - (ob.x + ob.w/2)) < 60 && ai.y > ob.y) {
@@ -999,12 +1012,20 @@ function updateAI() {
     if (bestPlatform && bestDist > 30) {
       aiAction.moveDir = (bestPlatform.x + bestPlatform.w/2) > ai.x ? 1 : -1;
       if (bestDist < 80) aiAction.wantJump = true;
+    } else if (!bestPlatform) {
+      // No platform above, switch to approach
+      aiState = 'approach'; aiStateTimer = 15;
+      aiAction.moveDir = dx > 0 ? 1 : -1;
     }
     // Aerial slam from platform!
     if (!ai.onGround && ai.y < target.y && dist < 100 && Math.random() < params.slamChance) {
       aiAction.wantAttack = true;
     }
   } else if (aiState === 'engage') {
+    // If target is on a platform above, switch to approach to chase up
+    if (dy < -30 && ai.onGround) {
+      aiState = 'approach'; aiStateTimer = 10;
+    }
     // Active combat
     if (w.type === 'melee') {
       // Melee: rush in, attack, maybe back off
@@ -1049,24 +1070,64 @@ function updateAI() {
         aiComboCount++;
         if (aiComboCount >= params.comboMax) {
           aiComboCount = 0;
-          if (Math.random() < 0.4) { aiState = 'flank'; aiStateTimer = 25; }
+          if (Math.random() < 0.15) { aiState = 'flank'; aiStateTimer = 15; }
         }
       }
       // Jump-shoot
       if (ai.onGround && Math.random() < 0.08) aiAction.wantJump = true;
     }
   } else {
-    // approach: move toward target
-    aiAction.moveDir = dx > 0 ? 1 : -1;
-    // Jump over obstacles or to reach platforms
-    if (dy < -60 && dist < 200) aiAction.wantJump = true;
-    if (Math.random() < 0.06 && ai.onGround) aiAction.wantJump = true;
+    // approach: always chase target aggressively
+    // If target is on a platform above, navigate to it
+    if (dy < -20 && ai.onGround) {
+      // Find the platform the target is standing on
+      let targetPlatform = null;
+      for (const ob of obstacles) {
+        if (target.x > ob.x - 15 && target.x < ob.x + ob.w + 15 && Math.abs(target.y + 20 - ob.y) < 10) {
+          targetPlatform = ob; break;
+        }
+      }
+      if (targetPlatform) {
+        // Move under the platform then jump
+        const platCenter = targetPlatform.x + targetPlatform.w / 2;
+        const distToPlat = Math.abs(ai.x - platCenter);
+        if (distToPlat > targetPlatform.w / 2 + 30) {
+          // Move toward the platform first
+          aiAction.moveDir = platCenter > ai.x ? 1 : -1;
+        } else {
+          // Under the platform — jump!
+          aiAction.wantJump = true;
+          aiAction.moveDir = dx > 0 ? 1 : -1;
+        }
+      } else {
+        // Target is above but not on a known platform — just jump and chase
+        aiAction.moveDir = dx > 0 ? 1 : -1;
+        aiAction.wantJump = true;
+      }
+    } else {
+      // Same height or target below — just chase horizontally
+      aiAction.moveDir = dx > 0 ? 1 : -1;
+    }
+    // Jump over obstacles in the way
+    for (const ob of obstacles) {
+      if (Math.abs(ai.x - (ob.x + ob.w/2)) < ob.w/2 + 20 && ai.y > ob.y - 30 && ai.y < ob.y + ob.h + 10 && ((dx > 0 && ai.x < ob.x) || (dx < 0 && ai.x > ob.x + ob.w))) {
+        aiAction.wantJump = true; break;
+      }
+    }
+    if (Math.random() < 0.08 && ai.onGround) aiAction.wantJump = true;
     // Drop down if target is below
-    if (ai.onGround && ai.y < GROUND - 10 && dy > 50) aiAction.wantDrop = true;
-    // Opportunistic attack while approaching
-    if (dist < w.range * 0.8 && ai.cooldownTimer <= 0 && Math.random() < params.attackAccuracy * 0.4) {
+    if (ai.onGround && ai.y < GROUND - 10 && dy > 30) aiAction.wantDrop = true;
+    // Attack while approaching
+    if (dist < w.range && ai.cooldownTimer <= 0 && Math.random() < params.attackAccuracy) {
       aiAction.wantAttack = true;
     }
+  }
+
+  // Hard AI: opportunistically grab nearby items in any state
+  if (aiLevel >= 3 && ai.hp < 80 && items.length > 0 && aiState !== 'itemHunt') {
+    let nearItem = null;
+    items.forEach(it => { if (Math.abs(it.x - ai.x) < 80 && Math.abs(it.y - ai.y) < 60) nearItem = it; });
+    if (nearItem) aiAction.moveDir = nearItem.x > ai.x ? 1 : -1;
   }
 
   // Aerial slam opportunity (any state)
@@ -1074,9 +1135,16 @@ function updateAI() {
     aiAction.wantAttack = true;
   }
 
-  // Fallback: if no movement decided, always move toward target
-  if (aiAction.moveDir === 0 && dist > 40) {
-    aiAction.moveDir = dx > 0 ? 1 : -1;
+  // Fallback: if no movement decided, always move toward target or strafe
+  if (aiAction.moveDir === 0) {
+    if (dist > 40) {
+      aiAction.moveDir = dx > 0 ? 1 : -1;
+    } else if (aiLevel >= 3) {
+      // Hard AI: strafe when close instead of standing still
+      aiAction.moveDir = Math.random() > 0.5 ? 1 : -1;
+    } else if (dist > 20) {
+      aiAction.moveDir = dx > 0 ? 1 : -1;
+    }
   }
 
   // Edge avoidance
